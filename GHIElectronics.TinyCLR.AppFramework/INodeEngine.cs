@@ -7,8 +7,6 @@ namespace GHIElectronics.TinyCLR.AppFramework {
     }
 
     public interface INodeEngine {
-        void Initialize();
-
         void ScheduleNextRun(IAgent agent, DateTime runAt);
 
         void Run();

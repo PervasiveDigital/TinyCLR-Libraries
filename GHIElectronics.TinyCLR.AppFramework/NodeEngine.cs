@@ -2,11 +2,14 @@ using System;
 using System.Collections;
 using System.Diagnostics;
 using System.Threading;
+
 using GHIElectronics.TinyCLR.AppFramework;
 using GHIElectronics.TinyCLR.AppFramework.Events;
 using GHIElectronics.TinyCLR.AppFramework.IoC;
+using GHIElectronics.TinyCLR.Devices.Rtc;
+using GHIElectronics.TinyCLR.Native;
 
-namespace GHIElectronics.TinyCLR.AppFramework.Core {
+namespace GHIElectronics.TinyCLR.AppFramework {
     public class NodeEngine : INodeEngine {
         private IDataLogger logger;
         private IDriver[] drivers;
@@ -19,7 +22,13 @@ namespace GHIElectronics.TinyCLR.AppFramework.Core {
         private bool fShutdown = false;
         private Thread thread;
 
-        public NodeEngine() {
+        static public INodeEngine CreateNodeEngine() {
+            DiContainer.Instance.Install(
+                new GHIElectronics.TinyCLR.AppFramework.Installer()
+            );
+            return (INodeEngine)DiContainer.Instance.Resolve(typeof(INodeEngine));
+        }
+        private NodeEngine() {
         }
 
         public IDriver FindDriver(Type driverType) {
@@ -31,34 +40,51 @@ namespace GHIElectronics.TinyCLR.AppFramework.Core {
             return null;
         }
 
-        public void Initialize() {
+        private void Initialize() {
+            // Proper logging and Agent scheduling relies on knowing the time.
+            //  Try to get it right away
+            var rtc = RtcController.GetDefault();
+            if (rtc.IsValid) {
+                // RTC is good so let's use it
+                SystemTime.SetTime(rtc.Now);
+            }
             var driverFactory = (IDriverFactory)DiContainer.Instance.Resolve(typeof(IDriverFactory));
-            var newDrivers = driverFactory.CreateDrivers();
+            if (driverFactory != null)
+            {
+                var newDrivers = driverFactory.CreateDrivers();
 
-            // Some drivers have to wait for other drivers, so keep looping until they are all initialized
-            if (newDrivers != null) {
-                var haveUninitializedDrivers = false;
-                do {
-                    haveUninitializedDrivers = false;
-                    foreach (var driver in newDrivers) {
-                        try {
-                            if (driver.State == DriverState.Uninitialized) {
-                                var state = driver.Start();
-                                // If this driver is still uninit'd, then it must be waiting for some
-                                //   other driver to come online - set the flag so that we do another pass.
-                                if (state == DriverState.Uninitialized) {
-                                    haveUninitializedDrivers = true;
+                // Some drivers have to wait for other drivers, so keep looping until they are all initialized
+                if (newDrivers != null)
+                {
+                    var haveUninitializedDrivers = false;
+                    do
+                    {
+                        haveUninitializedDrivers = false;
+                        foreach (var driver in newDrivers)
+                        {
+                            try
+                            {
+                                if (driver.State == DriverState.Uninitialized)
+                                {
+                                    var state = driver.Start();
+                                    // If this driver is still uninit'd, then it must be waiting for some
+                                    //   other driver to come online - set the flag so that we do another pass.
+                                    if (state == DriverState.Uninitialized)
+                                    {
+                                        haveUninitializedDrivers = true;
+                                    }
                                 }
                             }
+                            catch (Exception exDriverStart)
+                            {
+                                Debug.WriteLine("Exception during agent start : " + exDriverStart);
+                                // can't log it - services aren't started yet and the logger is a service
+                            }
                         }
-                        catch (Exception exDriverStart) {
-                            Debug.WriteLine("Exception during agent start : " + exDriverStart);
-                            // can't log it - services aren't started yet and the logger is a service
-                        }
-                    }
-                } while (haveUninitializedDrivers);
+                    } while (haveUninitializedDrivers);
+                }
+                this.drivers = newDrivers;
             }
-            this.drivers = newDrivers;
 
             var serviceFactory = (IServiceFactory)DiContainer.Instance.Resolve(typeof(IServiceFactory));
             if (serviceFactory != null) {
@@ -89,18 +115,25 @@ namespace GHIElectronics.TinyCLR.AppFramework.Core {
             }
 
             var agentFactory = (IAgentFactory)DiContainer.Instance.Resolve(typeof(IAgentFactory));
-            this.agents = agentFactory.CreateAgentsForState(EngineStates.Startup);
+            if (agentFactory != null)
+            {
+                this.agents = agentFactory.CreateAgentsForState(EngineStates.Startup);
 
-            if (this.agents != null) {
-                foreach (var agent in this.agents) {
-                    try {
-                        var firstRun = agent.Start();
-                        if (firstRun != DateTime.MaxValue)
-                            this.ScheduleNextRun(agent, firstRun);
-                    }
-                    catch (Exception exAgentStart) {
-                        Debug.WriteLine("Exception during agent start : " + exAgentStart);
-                        this.Logger?.LogEvent(EventClass.OperationalEvent, new ExceptionEvent(EventSeverity.Error, exAgentStart));
+                if (this.agents != null)
+                {
+                    foreach (var agent in this.agents)
+                    {
+                        try
+                        {
+                            var firstRun = agent.Start();
+                            if (firstRun != DateTime.MaxValue)
+                                this.ScheduleNextRun(agent, firstRun);
+                        }
+                        catch (Exception exAgentStart)
+                        {
+                            Debug.WriteLine("Exception during agent start : " + exAgentStart);
+                            this.Logger?.LogEvent(EventClass.OperationalEvent, new ExceptionEvent(EventSeverity.Error, exAgentStart));
+                        }
                     }
                 }
             }
@@ -154,6 +187,7 @@ namespace GHIElectronics.TinyCLR.AppFramework.Core {
         }
 
         public void Run() {
+            this.Initialize();
             this.thread = new Thread(this.Run_Internal);
             this.thread.Start();
         }
