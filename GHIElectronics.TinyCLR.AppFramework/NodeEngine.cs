@@ -49,34 +49,26 @@ namespace GHIElectronics.TinyCLR.AppFramework {
                 SystemTime.SetTime(rtc.Now);
             }
             var driverFactory = (IDriverFactory)DiContainer.Instance.Resolve(typeof(IDriverFactory));
-            if (driverFactory != null)
-            {
+            if (driverFactory != null) {
                 var newDrivers = driverFactory.CreateDrivers();
 
                 // Some drivers have to wait for other drivers, so keep looping until they are all initialized
-                if (newDrivers != null)
-                {
+                if (newDrivers != null) {
                     var haveUninitializedDrivers = false;
-                    do
-                    {
+                    do {
                         haveUninitializedDrivers = false;
-                        foreach (var driver in newDrivers)
-                        {
-                            try
-                            {
-                                if (driver.State == DriverState.Uninitialized)
-                                {
+                        foreach (var driver in newDrivers) {
+                            try {
+                                if (driver.State == DriverState.Uninitialized) {
                                     var state = driver.Start();
                                     // If this driver is still uninit'd, then it must be waiting for some
                                     //   other driver to come online - set the flag so that we do another pass.
-                                    if (state == DriverState.Uninitialized)
-                                    {
+                                    if (state == DriverState.Uninitialized) {
                                         haveUninitializedDrivers = true;
                                     }
                                 }
                             }
-                            catch (Exception exDriverStart)
-                            {
+                            catch (Exception exDriverStart) {
                                 Debug.WriteLine("Exception during agent start : " + exDriverStart);
                                 // can't log it - services aren't started yet and the logger is a service
                             }
@@ -115,22 +107,17 @@ namespace GHIElectronics.TinyCLR.AppFramework {
             }
 
             var agentFactory = (IAgentFactory)DiContainer.Instance.Resolve(typeof(IAgentFactory));
-            if (agentFactory != null)
-            {
+            if (agentFactory != null) {
                 this.agents = agentFactory.CreateAgentsForState(EngineStates.Startup);
 
-                if (this.agents != null)
-                {
-                    foreach (var agent in this.agents)
-                    {
-                        try
-                        {
+                if (this.agents != null) {
+                    foreach (var agent in this.agents) {
+                        try {
                             var firstRun = agent.Start();
                             if (firstRun != DateTime.MaxValue)
                                 this.ScheduleNextRun(agent, firstRun);
                         }
-                        catch (Exception exAgentStart)
-                        {
+                        catch (Exception exAgentStart) {
                             Debug.WriteLine("Exception during agent start : " + exAgentStart);
                             this.Logger?.LogEvent(EventClass.OperationalEvent, new ExceptionEvent(EventSeverity.Error, exAgentStart));
                         }
@@ -141,6 +128,48 @@ namespace GHIElectronics.TinyCLR.AppFramework {
             this.Logger?.LogEvent(EventClass.OperationalEvent, new GenericAppEvent(EventSeverity.Info, "App Startup : Node engine started"));
         }
 
+        public void SetEngineState(string engineState) {
+
+            var agentFactory = (IAgentFactory)DiContainer.Instance.Resolve(typeof(IAgentFactory));
+            if (agentFactory != null) {
+                var agentSet = agentFactory.CreateAgentsForState(engineState);
+
+                // Use a least-flow algorithm - stop any agents that are not in the new set, then start any agents
+                // that aren't already running.  Any agents that were running and still need to run will be left
+                // as-is.
+                var newAgentSet = new ArrayList();
+                foreach (var agent in this.agents) {
+                    if (!AgentExistsInArray(agentSet, agent)) {
+                        agent.Stop();
+                    }
+                }
+
+                foreach (var agent in agentSet) {
+                    if (!AgentExistsInArray(this.agents, agent)) {
+                        try {
+                            var firstRun = agent.Start();
+                            if (firstRun != DateTime.MaxValue)
+                                this.ScheduleNextRun(agent, firstRun);
+                        }
+                        catch (Exception exAgentStart) {
+                            Debug.WriteLine("Exception during agent start : " + exAgentStart);
+                            this.Logger?.LogEvent(EventClass.OperationalEvent, new ExceptionEvent(EventSeverity.Error, exAgentStart));
+                        }
+                    }
+                }
+
+                this.agents = agentSet;
+            }
+        }
+
+        private static bool AgentExistsInArray(IAgent[] agentList, IAgent candidate) {
+            foreach (var agent in agentList) {
+                if (agent == candidate) {
+                    return true;
+                }
+            }
+            return false;
+        }
         public void ScheduleNextRun(IAgent agent, DateTime runAt) {
             this.ScheduleNextRun(this.queue, agent, runAt);
             _ = this.scheduleChangedEvent.Set();
@@ -281,10 +310,6 @@ namespace GHIElectronics.TinyCLR.AppFramework {
             this.fShutdown = true;
             this.scheduleChangedEvent.Set();
         }
-
-        public void NavigateToEngineState(string newState) =>
-            //TODO: send a message to the run process that it shoudld shut down running agents and reconfigure to the new state. Use a synthetic/placeholder agent, defined in .Core, for this purpose
-            throw new NotImplementedException();
 
         private IDataLogger Logger {
             get {

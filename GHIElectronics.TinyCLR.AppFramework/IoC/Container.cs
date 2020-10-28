@@ -37,6 +37,19 @@ namespace GHIElectronics.TinyCLR.AppFramework.IoC {
             return null;
         }
 
+        public void Forget(Type service) {
+            if (this.names.Contains(service)) {
+                this.Forget((string)this.names[service]);
+                this.names.Remove(service);
+            }
+        }
+
+        public void Forget(string name) {
+            if (this.services.Contains(name)) {
+                this.services.Remove(name);
+            }
+        }
+
         public void Install(params IContainerInstaller[] installers) {
             foreach (var installer in installers) {
                 installer.Install(this);

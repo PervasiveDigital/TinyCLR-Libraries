@@ -13,7 +13,7 @@ namespace GHIElectronics.TinyCLR.AppFramework {
 
         void Stop();
 
-        void NavigateToEngineState(string newState);
+        void SetEngineState(string engineState);
 
         IDriver FindDriver(Type driverType);
     }
