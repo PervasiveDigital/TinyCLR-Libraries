@@ -45,19 +45,25 @@ namespace GHIElectronics.TinyCLR.Data.Json
 				{
 					var name = m.Name.Substring(4);
 					var methodResult = m.Invoke(oSource, null);
+                    Type serializationType = m.ReturnType;
+                    if (methodResult != null)
+                    {
+                        serializationType = methodResult.GetType();
+                    }
+
 					if (methodResult == null)
-						result._members.Add(name.ToLower(), new JProperty(name, JValue.Serialize(m.ReturnType, null)));
-					if (m.ReturnType.IsArray)
-						result._members.Add(name.ToLower(), new JProperty(name, JArray.Serialize(m.ReturnType, methodResult)));
+						result._members.Add(name.ToLower(), new JProperty(name, JValue.Serialize(serializationType, null)));
+					if (serializationType.IsArray)
+						result._members.Add(name.ToLower(), new JProperty(name, JArray.Serialize(serializationType, methodResult)));
 					else
                     {
-                        if (m.ReturnType.IsValueType || m.ReturnType == typeof(string))
+                        if (serializationType.IsValueType || serializationType == typeof(string))
                         {
-                            result._members.Add(name.ToLower(), new JProperty(name, JValue.Serialize(m.ReturnType, methodResult)));
+                            result._members.Add(name.ToLower(), new JProperty(name, JValue.Serialize(serializationType, methodResult)));
                         }
                         else
                         {
-                            result._members.Add(name.ToLower(), new JProperty(name, JObject.Serialize(m.ReturnType, methodResult)));
+                            result._members.Add(name.ToLower(), new JProperty(name, JObject.Serialize(serializationType, methodResult)));
                         }
                     }
                 }
@@ -74,26 +80,32 @@ namespace GHIElectronics.TinyCLR.Data.Json
 					case MemberTypes.Field:
 					case MemberTypes.Property:
 						var value = f.GetValue(oSource);
-						if (value == null)
+                        Type serializationType = f.FieldType;
+                        if (value!=null)
+                        {
+                            serializationType = value.GetType();
+                        }
+
+                        if (value == null)
 						{
-							result._members.Add(f.Name, new JProperty(f.Name, JValue.Serialize(f.FieldType, null)));
+							result._members.Add(f.Name, new JProperty(f.Name, JValue.Serialize(serializationType, null)));
 						}
-						else if (f.FieldType.IsValueType || f.FieldType == typeof(string))
+						else if (serializationType.IsValueType || serializationType == typeof(string))
 						{
 							result._members.Add(f.Name.ToLower(),
-								new JProperty(f.Name, JValue.Serialize(f.FieldType, value)));
+								new JProperty(f.Name, JValue.Serialize(serializationType, value)));
 						}
 						else
 						{
-							if (f.FieldType.IsArray)
+							if (serializationType.IsArray)
 							{
 								result._members.Add(f.Name.ToLower(),
-									new JProperty(f.Name, JArray.Serialize(f.FieldType, value)));
+									new JProperty(f.Name, JArray.Serialize(serializationType, value)));
 							}
 							else
 							{
 								result._members.Add(f.Name.ToLower(),
-									new JProperty(f.Name, JObject.Serialize(f.FieldType, value)));
+									new JProperty(f.Name, JObject.Serialize(serializationType, value)));
 							}
 						}
 						break;
