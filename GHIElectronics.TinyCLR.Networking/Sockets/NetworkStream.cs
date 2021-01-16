@@ -131,18 +131,22 @@ namespace System.Net.Sockets
         //     false. The default value is true.
         public override bool CanWrite => true;
 
-        public override int ReadTimeout {
+        public override int ReadTimeout
+        {
             get => this._socket.ReceiveTimeout;
-            set {
+            set
+            {
                 if (value == 0 || value < System.Threading.Timeout.Infinite) throw new ArgumentOutOfRangeException();
 
                 this._socket.ReceiveTimeout = value;
             }
         }
 
-        public override int WriteTimeout {
+        public override int WriteTimeout
+        {
             get => this._socket.SendTimeout;
-            set {
+            set
+            {
                 if (value == 0 || value < System.Threading.Timeout.Infinite) throw new ArgumentOutOfRangeException();
 
                 this._socket.SendTimeout = value;
@@ -180,7 +184,8 @@ namespace System.Net.Sockets
         // Exceptions:
         //   System.NotSupportedException:
         //     Any use of this property.
-        public override long Position {
+        public override long Position
+        {
             get => throw new NotSupportedException();
 
             set => throw new NotSupportedException();
@@ -393,19 +398,35 @@ namespace System.Net.Sockets
             if (count < 0 || count > buffer.Length - offset) throw new ArgumentOutOfRangeException();
 
             var bytesSent = 0;
-            do {
-                if (this._socketType == (int)SocketType.Stream) {
+            int retries = 5;
+            do
+            {
+                if (this._socketType == (int)SocketType.Stream)
+                {
                     bytesSent = this._socket.Send(buffer, offset, count, SocketFlags.None);
                 }
-                else if (this._socketType == (int)SocketType.Dgram) {
+                else if (this._socketType == (int)SocketType.Dgram)
+                {
                     bytesSent = this._socket.SendTo(buffer, offset, count, SocketFlags.None, this._socket.RemoteEndPoint);
                 }
-                else {
+                else
+                {
                     throw new NotSupportedException();
                 }
                 count -= bytesSent;
                 offset += bytesSent;
-            } while (bytesSent != 0 && count > 0);
+                if (bytesSent == 0 && count > 0)
+                {
+                    // last send was not successful - wait a bit for the buffers to flush
+                    Threading.Thread.Sleep(100);
+                    --retries;
+                }
+                else
+                {
+                    // last send was fully or partially successful - reduce the retries
+                    retries = 5;
+                }
+            } while (retries != 0 && count > 0);
 
             if (count != 0) throw new IOException();
         }
